@@ -52,6 +52,7 @@ function buildGatewaySessionStoreScanTargets(params: {
   key: string;
   canonicalKey: string;
   agentId: string;
+  preserveQualifiedAddress?: true;
 }): string[] {
   const targets = new Set<string>();
   if (params.canonicalKey) {
@@ -60,7 +61,11 @@ function buildGatewaySessionStoreScanTargets(params: {
   if (params.key && params.key !== params.canonicalKey) {
     targets.add(params.key);
   }
-  if (params.canonicalKey === "global" || params.canonicalKey === "unknown") {
+  if (
+    params.preserveQualifiedAddress ||
+    params.canonicalKey === "global" ||
+    params.canonicalKey === "unknown"
+  ) {
     return [...targets];
   }
   const agentMainKey = resolveAgentMainSessionKey({ cfg: params.cfg, agentId: params.agentId });
@@ -180,6 +185,7 @@ type GatewaySessionStoreLookupParams = {
   projection?: SessionEntryListScope["projection"];
   readOnly?: boolean;
   exactRead?: boolean;
+  preserveQualifiedAddress?: true;
   listCandidatesOnly?: boolean;
   deferCanonicalValidation?: boolean;
   includeStoreChildEntries?: boolean;
@@ -251,11 +257,18 @@ function prepareExplicitDeletedLegacyMainStoreTarget(
     cfg: params.cfg,
     agentId: legacyAgentId,
     sessionKey: params.key,
+    preserveQualifiedAddress: params.preserveQualifiedAddress,
   });
-  const agentMainKey = resolveAgentMainSessionKey({ cfg: params.cfg, agentId: legacyAgentId });
-  const lookupSeeds = Array.from(
-    new Set([params.key, canonicalKey, agentMainKey, `agent:${legacyAgentId}:main`]),
-  );
+  const lookupSeeds = params.preserveQualifiedAddress
+    ? [canonicalKey]
+    : Array.from(
+        new Set([
+          params.key,
+          canonicalKey,
+          resolveAgentMainSessionKey({ cfg: params.cfg, agentId: legacyAgentId }),
+          `agent:${legacyAgentId}:main`,
+        ]),
+      );
   const { existing } = resolveGatewaySessionStoreCandidates(
     params.cfg,
     legacyAgentId,
@@ -350,6 +363,7 @@ function prepareGatewaySessionStoreTarget(
     cfg: params.cfg,
     sessionKey: key,
     agentId: params.agentId,
+    preserveQualifiedAddress: params.preserveQualifiedAddress,
   });
   if (isIncognitoSessionKey(canonicalKey)) {
     const storePath = resolveIncognitoOpenClawAgentSqlitePath({ agentId, env: params.env });
@@ -469,10 +483,11 @@ export function createGatewaySessionEntryReader(params: {
     const target = resolveGatewaySessionStoreTargetWithStore({
       cfg: params.cfg,
       key,
-      // Unqualified parents are child-relative; qualified aliases retain their own owner.
-      ...(parseAgentSessionKey(key) ? {} : { agentId: params.agentId }),
+      // Stored qualified parents retain their literal address and owner.
+      agentId: parseAgentSessionKey(key)?.agentId ?? params.agentId,
       readOnly: true,
       exactRead: true,
+      preserveQualifiedAddress: true,
       clone: false,
       projection: "list",
       targetDiscoveryCache,

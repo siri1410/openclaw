@@ -181,6 +181,17 @@ own their nested metadata independently of resident rows. Pending-input
 reconciliation remains a separate synchronous owner; this change does not alter
 storage, migrations, configuration, or update behavior.
 
+A missing resident row gets a bounded worker sharing read before history treats
+it as absent. This preserves refusal for durable entries marked incognito, which
+are intentionally excluded from the resident roster. The projection revision
+invalidates those facts after a publication; excluded metadata never grants
+transcript access or enters resident rows.
+
+Bulk hydration, stored parent links, inherited model lookups, and ACP metadata
+also retain qualified stored addresses when main aliases or global scope change.
+Request aliases still follow current configuration; preparing history never
+rekeys an existing row or redirects its stored lineage.
+
 Startup/topology hydration, internal synchronous keyed and archived reads, and
 process-held incognito stores remain migration debt. Preserve the
 projection and its identity/revision invalidation instead of replacing it with

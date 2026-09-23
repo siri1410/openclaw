@@ -7,11 +7,53 @@ import {
   appendTranscriptMessage,
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { chatHistoryHandlers } from "./chat-history-handler.js";
 import { createHistoryReadContext } from "./chat-history.test-helpers.js";
+import type { RespondFn } from "./types.js";
 
 describe("chat history registry projection", () => {
+  it("reads the selected agent's global history through its main alias", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const cfg = {
+        agents: { list: [{ id: "main", default: true }, { id: "work" }] },
+        session: { scope: "global" },
+      } satisfies OpenClawConfig;
+      await state.writeConfig(cfg);
+      for (const agentId of ["main", "work"]) {
+        const scope = { agentId, sessionKey: "global", sessionId: `global-history-${agentId}` };
+        await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+        await appendTranscriptMessage(scope, {
+          message: { role: "user", content: `Selected ${agentId} history` },
+          now: 1,
+        });
+      }
+      const context = await createHistoryReadContext({ getRuntimeConfig: () => cfg });
+      const respond = vi.fn<RespondFn>();
+      await expectDefined(
+        chatHistoryHandlers["chat.history"],
+        "history handler",
+      )({
+        params: { sessionKey: "agent:work:main" },
+        respond,
+        req: { type: "req", id: "selected-global-history", method: "chat.history" },
+        client: null,
+        isWebchatConnect: () => false,
+        context,
+      });
+
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          sessionId: "global-history-work",
+          messages: [expect.objectContaining({ content: "Selected work history" })],
+          sessionInfo: expect.objectContaining({ key: "global", agentId: "work" }),
+        }),
+      );
+    });
+  });
+
   it.each(["chat.history", "chat.startup"] as const)(
     "%s polls an unchanged cursor without hydrating retained subagent tasks",
     async (method) => {

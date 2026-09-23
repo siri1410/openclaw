@@ -13,12 +13,10 @@ import {
   prepareOptionalSubagentSessionListReadCache,
 } from "../../agents/subagents/registry/subagent-registry-state.js";
 import { composeTranscriptDisplay } from "../../chat/transcript-display-position.js";
-import { resolveSessionStorePathCore } from "../../config/sessions/paths.js";
 import {
   listSessionPendingInputReceipts,
   resolveTranscriptSessionKeyBySessionId,
 } from "../../config/sessions/session-accessor.js";
-import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   measureDiagnosticsTimelineSpan,
   measureDiagnosticsTimelineSpanSync,
@@ -34,16 +32,9 @@ import { resolveClaudeCliBindingSessionId } from "../cli-session-history.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
 import { buildGatewaySessionSnapshot } from "../session-event-payload.js";
 import { resolveSessionHistoryUnavailableMessage } from "../session-history-error.js";
-import {
-  resolveRequestedSessionAgentId,
-  tryResolveSessionCompatibilityOwnerAgentId,
-} from "../session-request-agent.js";
-import { withReadySessionRows, type SessionRowReadView } from "../session-row-prepared-read.js";
+import { tryResolveSessionCompatibilityOwnerAgentId } from "../session-request-agent.js";
+import { withReadySessionRows } from "../session-row-prepared-read.js";
 import { prepareProjectedSessionPresentation } from "../session-row-presentation.js";
-import { getSessionRowProjection } from "../session-row-projection-access.js";
-import { hiddenSessionNotFound } from "../session-sharing-policy.js";
-import { isGatewayAdmin, resolveSessionVisibility } from "../session-sharing.js";
-import { resolveSessionStoreIdentity } from "../session-store-key.js";
 import { capArrayByJsonBytes } from "../session-transcript-readers.js";
 import { resolveGatewayModelThinkingProfile } from "../session-utils-model.js";
 import { buildGatewaySessionRow } from "../session-utils-row.js";
@@ -69,6 +60,7 @@ import {
   respondChatHistoryUnavailable,
   type ChatHistoryMethod,
 } from "./chat-history-recovery.js";
+import { prepareChatHistorySessionRead } from "./chat-history-session-read.js";
 import { handleChatMetadataRequest } from "./chat-metadata-handler.js";
 import { readChatPendingInputs } from "./chat-pending-inputs.js";
 import { handleChatStartupRequest } from "./chat-startup-handler.js";
@@ -136,117 +128,22 @@ export async function handleChatHistoryRequest({
   }
   signal?.throwIfAborted();
   const agentIdOverride = normalizeOptionalText((params as { agentId?: string }).agentId);
-  const rowProjection = getSessionRowProjection(context);
-  if (!rowProjection) {
-    respondChatHistoryUnavailable(
-      method,
-      respond,
-      "session rows are initializing; reload the conversation",
-    );
+  const selection = await prepareChatHistorySessionRead({
+    context,
+    client,
+    respond,
+    signal,
+    method,
+    sessionKey,
+    agentIdOverride,
+    requestedSessionId,
+    retainedSessionId,
+  });
+  if (!selection) {
     return;
   }
-  const queries = (cfg: OpenClawConfig) => {
-    const requested = resolveRequestedSessionAgentId(cfg, sessionKey, agentIdOverride);
-    return requested.ok ? [{ key: sessionKey, agentId: requested.agentId }] : [];
-  };
-  const selectSession = (read: SessionRowReadView) => {
-    const cfg = read.state.cfg;
-    const requested = resolveRequestedSessionAgentId(cfg, sessionKey, agentIdOverride);
-    if (!requested.ok) {
-      respond(false, undefined, requested.error);
-      return undefined;
-    }
-    const record = read.describe({ key: sessionKey, agentId: requested.agentId });
-    const identity = record
-      ? { agentId: record.agentId, canonicalKey: record.key }
-      : resolveSessionStoreIdentity({ cfg, sessionKey, agentId: requested.agentId });
-    return {
-      cfg,
-      ...identity,
-      record,
-      entry: record?.storedEntry ?? record?.entry,
-      storePath:
-        record?.storeTarget.storePath ??
-        resolveSessionStorePathCore(cfg.session?.store, { agentId: identity.agentId }),
-      storeKeys: [identity.canonicalKey],
-      store: {},
-    };
-  };
-  const authorizeSharing = (
-    current: NonNullable<ReturnType<typeof selectSession>>,
-    read: SessionRowReadView,
-  ) => {
-    const sharing = prepareProjectedSessionPresentation(read, client).sharing;
-    if (
-      current.entry
-        ? sharing.entryFilter?.(current.canonicalKey, current.entry) === false
-        : requestedSessionId && !retainedSessionId && !isGatewayAdmin(client)
-    ) {
-      respond(false, undefined, hiddenSessionNotFound(current.canonicalKey));
-      return undefined;
-    }
-    return sharing;
-  };
-  const selectedSession = await measureDiagnosticsTimelineSpan(
-    `gateway.${method}.session_entry`,
-    () =>
-      withReadySessionRows(rowProjection, queries, (read) => {
-        const selected = selectSession(read);
-        return selected && authorizeSharing(selected, read) ? selected : undefined;
-      }),
-    { config: context.getRuntimeConfig(), phase: method },
-  );
-  if (!selectedSession) {
-    return;
-  }
+  const { selectedSession, entry, queries, readCurrentSharing, rowProjection } = selection;
   const { cfg, agentId: sessionAgentId, storePath, canonicalKey } = selectedSession;
-  // The response owns nested values; resident metadata must survive caller mutation.
-  const entry = selectedSession.entry ? structuredClone(selectedSession.entry) : undefined;
-  const readCurrentSharing = (read: SessionRowReadView) => {
-    const current = selectSession(read);
-    if (!current) {
-      return undefined;
-    }
-    const currentEntry = current.entry;
-    // Task history separately validates its retained transcript; its live run may advance.
-    if (
-      entry &&
-      (!currentEntry ||
-        current.agentId !== sessionAgentId ||
-        current.canonicalKey !== canonicalKey ||
-        current.storePath !== storePath ||
-        (!retainedSessionId &&
-          (!read.describe(
-            { key: canonicalKey, agentId: sessionAgentId, storePath },
-            selectedSession.record,
-          ) ||
-            currentEntry.sessionId !== entry.sessionId ||
-            currentEntry.lifecycleRevision !== entry.lifecycleRevision ||
-            (entry.sessionStartedAt !== undefined &&
-              currentEntry.sessionStartedAt !== entry.sessionStartedAt))))
-    ) {
-      respondChatHistoryUnavailable(
-        method,
-        respond,
-        "session changed while reading history; reload the conversation",
-      );
-      return undefined;
-    }
-    const sharing = authorizeSharing(current, read);
-    if (!sharing) {
-      return undefined;
-    }
-    return currentEntry
-      ? {
-          visibility: resolveSessionVisibility(currentEntry),
-          sharingRole: sharing.roleForTarget({
-            ...current,
-            entry: currentEntry,
-            storeKey: current.canonicalKey,
-          }),
-        }
-      : {};
-  };
   if (requestedSessionId) {
     const transcriptSessionKey = resolveTranscriptSessionKeyBySessionId({
       agentId: sessionAgentId,

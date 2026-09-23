@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
 import { resolveSessionParentSessionKey } from "../channels/plugins/session-conversation.js";
-import { projectGatewaySessionEntry } from "../config/sessions/combined-store-gateway.js";
 import type { SessionRowDatabaseFacts } from "../config/sessions/session-transcript-worker.types.js";
 import type { SessionStoreTarget } from "../config/sessions/targets.js";
 import type {
@@ -366,7 +365,15 @@ export function parentReference(
     return physical(sourcePath, key);
   }
   const agentId = parseAgentSessionKey(key)?.agentId ?? fallbackAgentId;
-  return logical(agentId, resolveStoredSessionKeyForAgentStore({ cfg, agentId, sessionKey: key }));
+  return logical(
+    agentId,
+    resolveStoredSessionKeyForAgentStore({
+      cfg,
+      agentId,
+      sessionKey: key,
+      preserveQualifiedAddress: true,
+    }),
+  );
 }
 
 /** Drop reader-only graphs while retaining cold metadata and index identity. */
@@ -433,7 +440,7 @@ export function acquireSessionRowEntry(params: {
     remove(identity(row));
     return undefined;
   }
-  const entry = projectGatewaySessionEntry(cfg, storedEntry);
+  const entry = { ...storedEntry };
   const parents = readSessionRowParents(row, storedEntry, cfg, context);
   // Equal timestamps still need the full metadata comparison.
   const changed =

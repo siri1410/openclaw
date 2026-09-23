@@ -57,7 +57,12 @@ export function readSessionRowModelFacts(params: {
     agentId,
     provider: provider ?? DEFAULT_PROVIDER,
     model: model ?? DEFAULT_MODEL,
-    sessionKey: resolveStoredSessionKeyForAgentStore({ cfg, agentId, sessionKey: key }),
+    sessionKey: resolveStoredSessionKeyForAgentStore({
+      cfg,
+      agentId,
+      sessionKey: key,
+      preserveQualifiedAddress: true,
+    }),
     entry: params.entry,
     preparedAcpMeta: params.preparedAcpMeta,
     modelCatalog: rowModelCatalog ?? (lightweight ? [] : undefined),

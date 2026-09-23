@@ -44,6 +44,9 @@ class SessionMutationFactsUnavailableError extends Error {
   }
 }
 
+/** Absence is distinct from a refused or invalidated storage read. */
+export class SessionMutationFactsNotFoundError extends SessionMutationFactsUnavailableError {}
+
 function routeFacts(cfg: OpenClawConfig) {
   return {
     agents: listAgentIds(cfg),
@@ -323,7 +326,10 @@ export async function prepareSessionMutationFacts(params: {
         selected.storeKeys,
       );
       const sharing = members.get(selected.storePath);
-      if (!match || !sharing) {
+      if (!match) {
+        throw new SessionMutationFactsNotFoundError();
+      }
+      if (!sharing) {
         throw new SessionMutationFactsUnavailableError();
       }
       facts = {

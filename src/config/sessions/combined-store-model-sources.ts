@@ -8,7 +8,7 @@ import { storeTargetKey } from "./combined-store-paths.js";
 import type { SessionStoreTarget } from "./targets.js";
 import type { SessionEntry } from "./types.js";
 
-// Model sources retain stored lineage; combined rows may project aliases for display.
+// Model sources retain the exact stored lineage and its physical owner.
 export type GatewayStoredSessionTarget = GatewaySessionModelSource & {
   agentId: string;
   /** Exact stored key when a list uses an internal key to retain sentinel owners. */
@@ -78,6 +78,7 @@ export function createSessionModelSources(
               cfg,
               agentId,
               sessionKey: parentKey,
+              preserveQualifiedAddress: true,
             });
             const parentIdentity = logicalKey(agentId, canonicalKey);
             // Only unprepared qualified owners need an exact read. Cache absence too,

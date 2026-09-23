@@ -160,6 +160,7 @@ export function resolveSessionStoreIdentity(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
   agentId?: string;
+  preserveQualifiedAddress?: true;
 }): { agentId: string; canonicalKey: string } {
   const raw = normalizeOptionalString(params.sessionKey) ?? "";
   const requestedAgentId = normalizeOptionalString(params.agentId);
@@ -169,11 +170,14 @@ export function resolveSessionStoreIdentity(params: {
         .sessionKey
     : raw;
   const agentId = resolveSessionStoreAgentId(params.cfg, sessionKey, requestedAgentId);
-  const canonicalKey = resolveSessionStoreKey({
-    cfg: params.cfg,
-    sessionKey,
-    storeAgentId: agentId,
-  });
+  const canonicalKey = params.preserveQualifiedAddress
+    ? resolveStoredSessionKeyForAgentStore({
+        cfg: params.cfg,
+        sessionKey,
+        agentId,
+        preserveQualifiedAddress: true,
+      })
+    : resolveSessionStoreKey({ cfg: params.cfg, sessionKey, storeAgentId: agentId });
   // Global removes the prefix, but may still belong to a different persisted fixed-store owner.
   resolveSessionStoreAgentId(params.cfg, canonicalKey, agentId);
   return { agentId, canonicalKey };

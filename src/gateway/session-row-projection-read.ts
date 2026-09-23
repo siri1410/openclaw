@@ -156,6 +156,7 @@ export async function withSessionRowDatabaseFacts(
               cfg: owner.cfg,
               agentId: row.agentId,
               sessionKey: row.key,
+              preserveQualifiedAddress: true,
             }),
             entry,
           })),
