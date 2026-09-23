@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
-import { AgentsApiClient, type AgentsApiEvent } from "./agentsapi-client.js";
+import { AgentsApiClient, type AgentsApiEvent, type AgentsApiTurn } from "./agentsapi-client.js";
 
 /** Native input receipts and session idle, together, establish Agents API completion. */
 export function createAgentsApiSession(options: {
@@ -17,7 +17,7 @@ export function createAgentsApiSession(options: {
   let submitted = false;
   let stopped = false;
   let settled = false;
-  let rootTurn: AgentsApiEvent["turn"];
+  let rootTurn: AgentsApiTurn | undefined;
   let turnFailure: string | undefined;
   let cancelled = false;
   let submission: Promise<void> = Promise.resolve();
@@ -80,7 +80,7 @@ export function createAgentsApiSession(options: {
 
   const collectInputs = async (turnId: string) => {
     for (const item of await client.items(sessionId, turnId, signal)) {
-      if (item.type === "message" && item.role === "user") {
+      if (item.type === "message" && item.role === "user" && item.id) {
         observedInputItems.add(item.id);
       }
     }
@@ -204,6 +204,7 @@ export function createAgentsApiSession(options: {
               event.type === "agent.session.turn.item.done") &&
             event.item?.type === "message" &&
             event.item.role === "user" &&
+            event.item.id &&
             !observedInputItems.has(event.item.id)
           ) {
             observedInputItems.add(event.item.id);
@@ -229,14 +230,11 @@ export function createAgentsApiSession(options: {
             throw new Error(`Agents API MVP cannot continue: ${event.type}`);
           }
           if (
-            event.type.startsWith("agent.session.turn.") &&
-            event.turn?.subagent_id === null &&
-            event.turn.id === latestInputTurnId &&
-            [
-              "agent.session.turn.completed",
-              "agent.session.turn.failed",
-              "agent.session.turn.cancelled",
-            ].includes(event.type)
+            (event.type === "agent.session.turn.completed" ||
+              event.type === "agent.session.turn.failed" ||
+              event.type === "agent.session.turn.cancelled") &&
+            event.turn.subagent_id === null &&
+            event.turn.id === latestInputTurnId
           ) {
             rootTurn = event.turn;
             turnFailure = event.type.endsWith(".failed")

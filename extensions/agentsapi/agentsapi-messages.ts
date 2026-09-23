@@ -35,7 +35,11 @@ export function createAgentsApiMessageProjection(
   return {
     reply,
     observe(event: AgentsApiEvent): void {
-      if (event.item?.type === "message" && event.item.role === "assistant") {
+      if (
+        (event.type === "agent.session.turn.item.added" ||
+          event.type === "agent.session.turn.item.done") &&
+        event.item.type === "message" && event.item.role === "assistant" && event.item.id
+      ) {
         assistantPhases.set(event.item.id, event.item.phase);
         if (event.type === "agent.session.turn.item.done") {
           const parts = new Map<number, string>();
@@ -65,9 +69,9 @@ export function createAgentsApiMessageProjection(
         const index = event.content_index ?? 0;
         parts.set(
           index,
-          event.type.endsWith(".done")
-            ? (event.text ?? "")
-            : (parts.get(index) ?? "") + (event.delta ?? ""),
+          event.type === "agent.session.turn.output_text.done"
+            ? event.text
+            : (parts.get(index) ?? "") + event.delta,
         );
         texts.set(event.item_id, parts);
         if (
@@ -77,7 +81,7 @@ export function createAgentsApiMessageProjection(
           emitAssistantSnapshot(
             `agentsapi:${remoteSessionId}:${event.item_id}`,
             joinTextParts(parts),
-            event.delta ?? "",
+            event.type === "agent.session.turn.output_text.delta" ? event.delta : "",
           );
         }
       }
@@ -85,7 +89,7 @@ export function createAgentsApiMessageProjection(
     complete,
     commit(
       params: AgentHarnessAttemptParamsV2,
-      turn: AgentsApiTurn | NonNullable<AgentsApiEvent["turn"]>,
+      turn: AgentsApiTurn,
       items: AgentsApiItem[],
       assertCurrent: () => void,
     ): Promise<void> {
@@ -105,7 +109,7 @@ export function createAgentsApiMessageProjection(
 async function commitAgentsApiReply(
   params: AgentHarnessAttemptParamsV2,
   remoteSessionId: string,
-  turn: AgentsApiTurn | NonNullable<AgentsApiEvent["turn"]>,
+  turn: AgentsApiTurn,
   items: AgentsApiItem[],
   assertCurrent: () => void,
   reply: AgentsApiReply,
