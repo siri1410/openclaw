@@ -1,6 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
+import type { AgentSessionEvent } from "openai/resources/beta/agents/agents";
+import type { Turn } from "openai/resources/beta/agents/sessions/turns";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
-import { AgentsApiClient, type AgentsApiEvent, type AgentsApiTurn } from "./agentsapi-client.js";
+import { AgentsApiClient } from "./agentsapi-client.js";
 
 /** Native input receipts and session idle, together, establish Agents API completion. */
 export function createAgentsApiSession(options: {
@@ -9,7 +11,7 @@ export function createAgentsApiSession(options: {
   sessionId: string;
   signal: AbortSignal;
   assertCurrent: () => void;
-  onEvent: (event: AgentsApiEvent) => void;
+  onEvent: (event: AgentSessionEvent) => void;
   onSettled?: () => void;
 }) {
   const { client, cleanupClient, sessionId, signal, assertCurrent } = options;
@@ -17,7 +19,7 @@ export function createAgentsApiSession(options: {
   let submitted = false;
   let stopped = false;
   let settled = false;
-  let rootTurn: AgentsApiTurn | undefined;
+  let rootTurn: Turn | undefined;
   let turnFailure: string | undefined;
   let cancelled = false;
   let submission: Promise<void> = Promise.resolve();

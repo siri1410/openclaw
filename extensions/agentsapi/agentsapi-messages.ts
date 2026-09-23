@@ -1,7 +1,8 @@
+import type { AgentSessionEvent, AgentSessionItem } from "openai/resources/beta/agents/agents";
+import type { Turn } from "openai/resources/beta/agents/sessions/turns";
 import type { AgentHarnessAttemptParamsV2 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { calculateCost, type AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { appendSessionTranscriptMessageByIdentityStrict } from "openclaw/plugin-sdk/session-transcript-runtime";
-import type { AgentsApiEvent, AgentsApiItem, AgentsApiTurn } from "./agentsapi-client.js";
 
 type AgentEvent = Parameters<NonNullable<AgentHarnessAttemptParamsV2["onAgentEvent"]>>[0];
 type AgentsApiReply = { lastAssistant?: AssistantMessage; usage: AssistantMessage["usage"] };
@@ -34,7 +35,7 @@ export function createAgentsApiMessageProjection(
   };
   return {
     reply,
-    observe(event: AgentsApiEvent): void {
+    observe(event: AgentSessionEvent): void {
       if (
         (event.type === "agent.session.turn.item.added" ||
           event.type === "agent.session.turn.item.done") &&
@@ -91,8 +92,8 @@ export function createAgentsApiMessageProjection(
     complete,
     commit(
       params: AgentHarnessAttemptParamsV2,
-      turn: AgentsApiTurn,
-      items: AgentsApiItem[],
+      turn: Turn,
+      items: AgentSessionItem[],
       assertCurrent: () => void,
     ): Promise<void> {
       return commitAgentsApiReply(
@@ -111,8 +112,8 @@ export function createAgentsApiMessageProjection(
 async function commitAgentsApiReply(
   params: AgentHarnessAttemptParamsV2,
   remoteSessionId: string,
-  turn: AgentsApiTurn,
-  items: AgentsApiItem[],
+  turn: Turn,
+  items: AgentSessionItem[],
   assertCurrent: () => void,
   reply: AgentsApiReply,
   emitFinalReply: (turnId: string, text: string) => void | Promise<void>,
