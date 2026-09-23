@@ -3317,6 +3317,7 @@ export const en: TranslationMap & {
     },
     cloudWorkerFailed: "Runner failed: {error}",
     errorDetails: "Error details",
+    checkStatus: "Check status",
     details: "Details",
     copyError: "Copy error",
     providerAccessRemoved:
@@ -3365,6 +3366,7 @@ export const en: TranslationMap & {
       preparingContext: "Preparing this turn…",
       memoryFlushing: "Saving conversation memory…",
       startingModel: "Waiting for a response…",
+      waitingForState: "Temporarily busy—retrying…",
     },
     archivedSessionDisabled: "This session is archived. Unarchive it to continue the conversation.",
     subagentViewOnly: "View-only subagent",
