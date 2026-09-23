@@ -23,8 +23,11 @@ export function isCiProofTestFile(file: string): boolean {
 // owners, but automatic CI runs them only when the test itself changes.
 export const RELEASE_ONLY_RUNTIME_TEST_FILES = [
   "src/flows/doctor-health.test.ts",
+  "src/gateway/server.sessions.archive-worktree-lifecycle.test.ts",
+  "src/gateway/server.sessions.delete-worktree-lifecycle.test.ts",
   "src/infra/update-managed-service-handoff-foreground.test.ts",
   "src/node-host/node-worker-supervisor.recovery.test.ts",
+  "src/process/supervisor/adapters/child.service-lifecycle.test.ts",
   "src/state/openclaw-database-preflight.lifecycle.test.ts",
   ...stateStartupCorpusTestFiles,
 ] as const;
