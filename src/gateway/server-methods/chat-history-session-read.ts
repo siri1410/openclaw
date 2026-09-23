@@ -46,7 +46,15 @@ export async function prepareChatHistorySessionRead({
   }
   const queries = (cfg: OpenClawConfig) => {
     const requested = resolveRequestedSessionAgentId(cfg, sessionKey, agentIdOverride);
-    return requested.ok ? [{ key: sessionKey, agentId: requested.agentId }] : [];
+    if (!requested.ok) {
+      return [];
+    }
+    const { canonicalKey, agentId } = resolveSessionStoreIdentity({
+      cfg,
+      sessionKey,
+      agentId: requested.agentId,
+    });
+    return [{ key: canonicalKey, agentId }];
   };
   const selectSession = (read: SessionRowReadView) => {
     const cfg = read.state.cfg;
@@ -55,10 +63,18 @@ export async function prepareChatHistorySessionRead({
       respond(false, undefined, requested.error);
       return undefined;
     }
-    const record = read.describe({ key: sessionKey, agentId: requested.agentId });
+    const requestedIdentity = resolveSessionStoreIdentity({
+      cfg,
+      sessionKey,
+      agentId: requested.agentId,
+    });
+    const record = read.describe({
+      key: requestedIdentity.canonicalKey,
+      agentId: requestedIdentity.agentId,
+    });
     const identity = record
       ? { agentId: record.agentId, canonicalKey: record.key }
-      : resolveSessionStoreIdentity({ cfg, sessionKey, agentId: requested.agentId });
+      : requestedIdentity;
     return {
       cfg,
       ...identity,
