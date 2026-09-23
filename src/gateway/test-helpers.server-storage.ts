@@ -4,6 +4,7 @@ import {
   closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
 } from "../state/openclaw-agent-db.js";
+import { drainOpenClawAgentWriteAdmission } from "../state/openclaw-agent-write-admission.js";
 import { closeOpenClawStateDatabaseByPathAsync } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 
@@ -12,6 +13,7 @@ export async function closeGatewayTestHomeDatabases(
   options: { restoreEnv: boolean },
 ): Promise<void> {
   // Release leases before deleting their store, and revoke trust in recreated paths.
+  await drainOpenClawAgentWriteAdmission();
   await closeOpenClawAgentDatabasesAsync(home);
   closeOpenClawAgentDatabasesForTest(home);
   // External agent stores can retain workers whose lease coordinator belongs to this home.

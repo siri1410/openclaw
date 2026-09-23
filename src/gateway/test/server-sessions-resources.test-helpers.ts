@@ -25,6 +25,7 @@ import {
   listOpenClawRegisteredAgentDatabases,
   closeOpenClawAgentDatabasesForTest,
 } from "../../state/openclaw-agent-db.js";
+import { drainOpenClawAgentWriteAdmission } from "../../state/openclaw-agent-write-admission.js";
 import {
   closeOpenClawStateDatabaseByPathAsync,
   registerOpenClawStateDatabaseLifecycleListener,
@@ -61,6 +62,7 @@ export async function releaseGatewaySessionStoreFixture(dir: string) {
     }
     await Promise.all(releases);
   }
+  await drainOpenClawAgentWriteAdmission();
   if (testState.sessionStorePath && ownsPath(testState.sessionStorePath)) {
     testState.sessionStorePath = undefined;
   }

@@ -374,8 +374,12 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  const { clearSessionStoreCacheForTest, drainFileLockStateForTest } =
-    await loadWorkerCleanupHelpers();
+  const {
+    clearSessionStoreCacheForTest,
+    drainFileLockStateForTest,
+    drainSessionStoreWriterQueuesForTest,
+  } = await loadWorkerCleanupHelpers();
+  await drainSessionStoreWriterQueuesForTest();
   clearSessionStoreCacheForTest();
   await drainFileLockStateForTest();
 });

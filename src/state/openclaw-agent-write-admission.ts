@@ -19,6 +19,13 @@ const admission = resolveGlobalSingleton(
 
 export const SQLITE_SESSION_WRITER_QUEUES = admission.queues;
 
+/** Joins accepted writes without cancelling them; callers must first settle write producers. */
+export async function drainOpenClawAgentWriteAdmission(): Promise<void> {
+  while (admission.queues.size > 0) {
+    await Promise.all([...admission.queues.values()].map((queue) => queue.drainPromise));
+  }
+}
+
 export function runOpenClawAgentWriteAdmission<T>(
   options: OpenClawAgentDatabaseOptions,
   run: () => Promise<T> | T,

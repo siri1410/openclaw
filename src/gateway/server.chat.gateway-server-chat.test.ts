@@ -32,6 +32,7 @@ import {
   getActiveSessionWorkAdmissionCount,
 } from "../sessions/session-lifecycle-admission.js";
 import { extractFirstTextBlock } from "../shared/chat-message-content.js";
+import { drainOpenClawAgentWriteAdmission } from "../state/openclaw-agent-write-admission.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { observeGatewayRunExecution } from "./agent-command.test-helpers.js";
 import { flushPendingSessionsChangedEvents } from "./server-methods/session-change-event.js";
@@ -97,6 +98,7 @@ describe("gateway server chat", () => {
     await requestExecution.waitForCompletion();
     await flushPendingSessionsChangedEvents();
     expect(getActiveGatewayRootWorkCount(), getActiveGatewayRootWorkHolders().join(", ")).toBe(0);
+    await drainOpenClawAgentWriteAdmission();
   };
 
   const loadChatHistoryWithMessages = async (
@@ -617,6 +619,7 @@ describe("gateway server chat", () => {
   const waitForAgentRunDrained = async (runId: string) => {
     await requestExecution.waitForCompletion(runId);
     expect(getActiveGatewayRootWorkCount()).toBe(0);
+    await drainOpenClawAgentWriteAdmission();
     await waitForAgentRunOk(runId, 0);
   };
   const abortChatRun = async (runId: string) => {
@@ -1187,6 +1190,7 @@ describe("gateway server chat", () => {
       await requestExecution.waitForCompletion("idem-2");
       expect(agentCommandMock).toHaveBeenCalled();
       expect(getActiveGatewayRootWorkCount()).toBe(0);
+      await drainOpenClawAgentWriteAdmission();
 
       testState.sessionStorePath = undefined;
       testState.sessionConfig = undefined;

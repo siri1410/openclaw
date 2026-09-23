@@ -14,6 +14,7 @@ import {
   openOpenClawAgentDatabase,
 } from "./openclaw-agent-db.js";
 import {
+  drainOpenClawAgentWriteAdmission,
   runOpenClawAgentWorkerWrite,
   runOpenClawAgentWriteAdmission,
   SQLITE_SESSION_WRITER_QUEUES,
@@ -98,6 +99,41 @@ describe("agent database write admission", () => {
     await reservation.done;
     await expect(Promise.all(writes)).resolves.toEqual([1, 2, 3]);
     expect(calls).toEqual([1, 2, 3]);
+  });
+
+  it("joins pending writes and stores admitted while an earlier queue drains", async () => {
+    const reservation = reserveWorkerOperation();
+    await reservation.entered;
+    const calls: string[] = [];
+    const write = runOpenClawAgentWriteAdmission(options, () => calls.push("queued write"));
+    const drainage = drainOpenClawAgentWriteAdmission().then(() => {
+      calls.push("joined");
+    });
+    const otherEntered = createDeferredCore();
+    const otherReleased = createDeferredCore();
+    releases.push(otherReleased.resolve);
+    const other = runOpenClawAgentWorkerWrite(
+      { ...options, path: path.join(path.dirname(options.path), "peer.sqlite") },
+      async () => {
+        otherEntered.resolve();
+        await otherReleased.promise;
+        calls.push("later store");
+      },
+    );
+    try {
+      await otherEntered.promise;
+      expect(calls).toEqual([]);
+      reservation.release();
+      await write;
+      expect(calls).toEqual(["queued write"]);
+      otherReleased.resolve();
+      await drainage;
+      expect(calls).toEqual(["queued write", "later store", "joined"]);
+    } finally {
+      reservation.release();
+      otherReleased.resolve();
+      await Promise.all([reservation.done, write, other, drainage]);
+    }
   });
 
   it("retains caller context and lets synchronous mutations reenter the ordinary owner", async () => {
