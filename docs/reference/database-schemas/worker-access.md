@@ -183,9 +183,11 @@ storage, migrations, configuration, or update behavior.
 
 A missing resident row gets a bounded worker sharing read before history treats
 it as absent. This preserves refusal for durable entries marked incognito, which
-are intentionally excluded from the resident roster. The projection revision
-invalidates those facts after a publication; excluded metadata never grants
-transcript access or enters resident rows.
+are intentionally excluded from the resident roster. The sharing owner retains
+negative reads through response publication, invalidating them when the selected
+key, physical source, or route changes. Unrelated catalog refreshes do not reject
+empty history. Excluded metadata never grants transcript access or enters resident
+rows.
 
 Bulk hydration, stored parent links, inherited model lookups, and ACP metadata
 also retain qualified stored addresses when main aliases or global scope change.

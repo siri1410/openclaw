@@ -6,11 +6,13 @@ import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
 import { withReadySessionRows, type SessionRowReadView } from "../session-row-prepared-read.js";
 import { prepareProjectedSessionPresentation } from "../session-row-presentation.js";
 import { getSessionRowProjection } from "../session-row-projection-access.js";
-import type { SessionRowProjection } from "../session-row-projection.js";
-import { hiddenSessionNotFound } from "../session-sharing-policy.js";
+import {
+  hiddenSessionNotFound,
+  type PreparedSessionMutationFacts,
+} from "../session-sharing-policy.js";
 import {
   prepareSessionMutationFacts,
-  SessionMutationFactsNotFoundError,
+  SessionMutationFactsUnavailableError,
 } from "../session-sharing-preparation.js";
 import { isGatewayAdmin, resolveSessionVisibility } from "../session-sharing.js";
 import { resolveSessionStoreIdentity } from "../session-store-key.js";
@@ -112,113 +114,114 @@ export async function prepareChatHistorySessionRead({
     { config: context.getRuntimeConfig(), phase: method },
   );
   signal?.throwIfAborted();
-  if (selectedSession && !selectedSession.entry) {
-    const selected = selectedSession;
-    const excluded = await readExcludedChatHistoryEntry(rowProjection, {
-      sessionKey,
-      agentId: selected.agentId,
-    });
-    signal?.throwIfAborted();
-    const checked = await withReadySessionRows(rowProjection, queries, (read) => {
-      if (rowProjection.state.revision !== excluded.revision) {
-        respondChatHistoryUnavailable(
-          method,
-          respond,
-          "session changed while reading history; reload the conversation",
-        );
-        return "refused";
-      }
-      if (!excluded.entry) {
-        return "missing";
-      }
-      if (authorizeSharing({ ...selected, entry: excluded.entry }, read)) {
-        respondChatHistoryUnavailable(
-          method,
-          respond,
-          "session changed while reading history; reload the conversation",
-        );
-      }
-      return "refused";
-    });
-    if (checked === "refused") {
-      return undefined;
-    }
-  }
   if (!selectedSession) {
     return undefined;
   }
-  const { agentId: sessionAgentId, storePath, canonicalKey } = selectedSession;
-  // The response owns nested values; resident metadata must survive caller mutation.
-  const entry = selectedSession.entry ? structuredClone(selectedSession.entry) : undefined;
-  const readCurrentSharing = (read: SessionRowReadView) => {
-    const current = selectSession(read);
-    if (!current) {
-      return undefined;
-    }
-    const currentEntry = current.entry;
-    // Task history separately validates its retained transcript; its live run may advance.
-    if (
-      entry &&
-      (!currentEntry ||
-        current.agentId !== sessionAgentId ||
-        current.canonicalKey !== canonicalKey ||
-        current.storePath !== storePath ||
-        (!retainedSessionId &&
-          (!read.describe(
-            { key: canonicalKey, agentId: sessionAgentId, storePath },
-            selectedSession.record,
-          ) ||
-            currentEntry.sessionId !== entry.sessionId ||
-            currentEntry.lifecycleRevision !== entry.lifecycleRevision ||
-            (entry.sessionStartedAt !== undefined &&
-              currentEntry.sessionStartedAt !== entry.sessionStartedAt))))
-    ) {
-      respondChatHistoryUnavailable(
-        method,
-        respond,
-        "session changed while reading history; reload the conversation",
-      );
-      return undefined;
-    }
-    const sharing = authorizeSharing(current, read);
-    if (!sharing) {
-      return undefined;
-    }
-    return currentEntry
-      ? {
-          visibility: resolveSessionVisibility(currentEntry),
-          sharingRole: sharing.roleForTarget({
-            ...current,
-            entry: currentEntry,
-            storeKey: current.canonicalKey,
-          }),
-        }
-      : {};
-  };
-  return { selectedSession, entry, queries, readCurrentSharing, rowProjection };
-}
-
-/** Excluded durable privacy metadata can refuse a read, never authorize transcript delivery. */
-async function readExcludedChatHistoryEntry(
-  projection: SessionRowProjection,
-  request: { sessionKey: string; agentId: string },
-) {
-  const state = projection.state;
-  // The prepared row reader already acquired process-local incognito keys exactly.
-  if (isIncognitoSessionKey(request.sessionKey)) {
-    return { revision: state.revision, entry: undefined };
-  }
+  let excluded:
+    | {
+        readCurrent(cfg: OpenClawConfig): PreparedSessionMutationFacts;
+        release(): void;
+      }
+    | undefined;
   try {
-    const prepared = await prepareSessionMutationFacts({ cfg: state.cfg, ...request });
-    try {
-      const { target } = prepared.readCurrent(projection.state.cfg);
-      return { revision: state.revision, entry: target.entry.incognito ? target.entry : undefined };
-    } finally {
-      prepared.release();
+    if (!selectedSession.entry && !isIncognitoSessionKey(sessionKey)) {
+      excluded = await prepareSessionMutationFacts({
+        cfg: selectedSession.cfg,
+        sessionKey,
+        agentId: selectedSession.agentId,
+        allowMissing: true,
+      });
+      signal?.throwIfAborted();
     }
+    const { agentId: sessionAgentId, storePath, canonicalKey } = selectedSession;
+    // The response owns nested values; resident metadata must survive caller mutation.
+    const entry = selectedSession.entry ? structuredClone(selectedSession.entry) : undefined;
+    const readCurrentSharing = (read: SessionRowReadView) => {
+      const current = selectSession(read);
+      if (!current) {
+        return undefined;
+      }
+      if (excluded) {
+        let excludedEntry;
+        try {
+          excludedEntry = excluded.readCurrent(read.state.cfg).target?.entry;
+        } catch (error) {
+          if (!(error instanceof SessionMutationFactsUnavailableError)) {
+            throw error;
+          }
+          respondChatHistoryUnavailable(method, respond, error.message);
+          return undefined;
+        }
+        // Excluded metadata can refuse a read, never authorize transcript delivery.
+        if (excludedEntry) {
+          if (authorizeSharing({ ...current, entry: excludedEntry }, read)) {
+            respondChatHistoryUnavailable(
+              method,
+              respond,
+              "session changed while reading history; reload the conversation",
+            );
+          }
+          return undefined;
+        }
+      }
+      const currentEntry = current.entry;
+      // Task history separately validates its retained transcript; its live run may advance.
+      if (
+        entry &&
+        (!currentEntry ||
+          current.agentId !== sessionAgentId ||
+          current.canonicalKey !== canonicalKey ||
+          current.storePath !== storePath ||
+          (!retainedSessionId &&
+            (!read.describe(
+              { key: canonicalKey, agentId: sessionAgentId, storePath },
+              selectedSession.record,
+            ) ||
+              currentEntry.sessionId !== entry.sessionId ||
+              currentEntry.lifecycleRevision !== entry.lifecycleRevision ||
+              (entry.sessionStartedAt !== undefined &&
+                currentEntry.sessionStartedAt !== entry.sessionStartedAt))))
+      ) {
+        respondChatHistoryUnavailable(
+          method,
+          respond,
+          "session changed while reading history; reload the conversation",
+        );
+        return undefined;
+      }
+      const sharing = authorizeSharing(current, read);
+      if (!sharing) {
+        return undefined;
+      }
+      return currentEntry
+        ? {
+            visibility: resolveSessionVisibility(currentEntry),
+            sharingRole: sharing.roleForTarget({
+              ...current,
+              entry: currentEntry,
+              storeKey: current.canonicalKey,
+            }),
+          }
+        : {};
+    };
+    if (excluded && !(await withReadySessionRows(rowProjection, queries, readCurrentSharing))) {
+      excluded.release();
+      return undefined;
+    }
+    signal?.throwIfAborted();
+    return {
+      selectedSession,
+      entry,
+      queries,
+      readCurrentSharing,
+      rowProjection,
+      release: () => excluded?.release(),
+    };
   } catch (error) {
-    if (error instanceof SessionMutationFactsNotFoundError) {
-      return { revision: state.revision, entry: undefined };
+    excluded?.release();
+    if (error instanceof SessionMutationFactsUnavailableError) {
+      respondChatHistoryUnavailable(method, respond, error.message);
+      return undefined;
     }
     throw error;
   }

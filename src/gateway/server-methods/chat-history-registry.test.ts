@@ -9,12 +9,50 @@ import {
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import * as sharingPreparation from "../session-sharing-preparation.js";
 import { chatHistoryHandlers } from "./chat-history-handler.js";
 import { createHistoryReadContext } from "./chat-history.test-helpers.js";
 import type { RespondFn } from "./types.js";
 
 describe("chat history registry projection", () => {
+  it("keeps an empty history available across unrelated catalog publication", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const context = await createHistoryReadContext();
+      const prepare = sharingPreparation.prepareSessionMutationFacts;
+      const probe = vi
+        .spyOn(sharingPreparation, "prepareSessionMutationFacts")
+        .mockImplementation(async (params) => {
+          try {
+            return await prepare(params);
+          } finally {
+            sessionChanges.emit({ all: true, scope: "catalog" });
+          }
+        });
+      try {
+        const respond = vi.fn<RespondFn>();
+        await expectDefined(
+          chatHistoryHandlers["chat.history"],
+          "history handler",
+        )({
+          params: { sessionKey: "agent:main:empty" },
+          respond,
+          req: { type: "req", id: "empty-history", method: "chat.history" },
+          client: null,
+          isWebchatConnect: () => false,
+          context,
+        });
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({ messages: [], sessionId: undefined }),
+        );
+      } finally {
+        probe.mockRestore();
+      }
+    });
+  });
+
   it.each(["global", "per-sender"] as const)(
     "reads the selected agent's %s main alias before a competing literal row",
     async (sessionScope) => {
